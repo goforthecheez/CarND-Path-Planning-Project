@@ -96,7 +96,7 @@ int main() {
 
           // Main car's localization data.
           double car_x = j[1]["x"];
-	        double car_y = j[1]["y"];
+          double car_y = j[1]["y"];
           double car_s = j[1]["s"];
           double car_d = j[1]["d"];
           double car_yaw = j[1]["yaw"];
@@ -130,40 +130,46 @@ int main() {
 
           // Compute car state at the end of the previous path.
           double curr_x = car_x;
-          double curr_y = car_y;
-          double curr_s = car_s;
-          double curr_d = car_d;
-          double curr_theta = car_yaw;
-          double curr_v = car_speed;
-          // The number of timesteps remaining in the previous path.
-          if (num_points_to_keep >= 2) {
-            curr_x = next_x_vals.back();
-            curr_y = next_y_vals.back();
-            curr_theta = atan2(next_y_vals.back() -
-                                   next_y_vals[next_y_vals.size() - 2],
-                               next_x_vals.back() -
-                                   next_x_vals[next_x_vals.size() - 2]);
+	  double curr_y = car_y;
+	  double curr_s = car_s;
+	  double curr_d = car_d;
+	  double curr_theta = deg2rad(car_yaw);
+	  double curr_v = car_speed;
+          // If there were remaining values in previous_path, let the values at
+	  // the end of previous_path be the current state.
+          if (num_points_to_keep > 0) {
+  	    double prev_x;
+            double prev_y;
+	    if (num_points_to_keep == 1) {
+              prev_x = car_x;
+	      curr_x = next_x_vals.back();
+              prev_y = car_y;
+	      curr_y = next_y_vals.back();
+	    } else if (num_points_to_keep >= 2) {
+	      prev_x = next_x_vals[next_x_vals.size() - 2];
+              curr_x = next_x_vals.back();
+	      prev_y = next_y_vals[next_y_vals.size() - 2];
+              curr_y = next_y_vals.back();
+	    }
+            curr_theta = atan2(curr_y - prev_y, curr_x - prev_x);
             const vector<double> sd = GetFrenet(
                 curr_x, curr_y, curr_theta, map_waypoints_x, map_waypoints_y);
             curr_s = sd[0];
             curr_d = sd[1];
-            curr_v = distance(next_x_vals[next_x_vals.size() - 2],
-                              next_y_vals[next_y_vals.size() - 2],
-                              next_x_vals.back(),
-                              next_y_vals.back()) / TIMESTEP;
-          }
+            curr_v = distance(prev_x, prev_y, curr_x, curr_y) / TIMESTEP;
+	  }
 
           // Determine what maneuver to execute (i.e. which lane to aim for).
           const vector<double> plan = PlanBehavior(
-              curr_s, curr_d, curr_v, sensor_fusion, num_points_to_keep);
+              car_s, curr_s, curr_d, curr_v, sensor_fusion, num_points_to_keep);
           const int target_lane = (int) plan[0];
           const double target_speed = plan[1];
 
           // Generate a smooth trajectory for the target lane.
           tg.GenerateTrajectory(
-              sensor_fusion, num_points_to_keep, &next_x_vals,
-              &next_y_vals, car_d, car_yaw, curr_x, curr_y, curr_s, curr_d, curr_theta,
-              curr_v, target_lane, target_speed);
+              sensor_fusion, num_points_to_keep, &next_x_vals, &next_y_vals,
+              deg2rad(car_yaw), curr_x, curr_y, curr_s, curr_d, curr_theta,
+	      curr_v, target_lane, target_speed);
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;

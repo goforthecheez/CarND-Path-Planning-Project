@@ -30,6 +30,9 @@ double evaluate_at(const vector<double>& coeffs, double eval_at) {
     sum += coeff * power;
     power *= eval_at;
   }
+  if (eval_at == 0.0) {
+    cout << "IT IS: " << sum;
+  }
   return sum;
 }
 

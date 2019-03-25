@@ -147,12 +147,12 @@ class SplitLaningCostFn : public CostFnInterface {
 
   // Returns the left edge of the car at Frenet coordinate d.
   double GetCarLeftEdge(double d) {
-    return d - CAR_WIDTH / 2.0;
+    return d - CAR_WIDTH / 2.0 - 0.1;
   }
 
   // Returns the right edge of the car at Frenet coordinate d.
   double GetCarRightEdge(double d) {
-    return d + CAR_WIDTH / 2.0;
+    return d + CAR_WIDTH / 2.0 + 0.1;
   }
 
   const vector<double>& maps_x_;
@@ -238,6 +238,7 @@ class TotalAccelerationCostFn : public CostFnInterface {
       const double accel_s = evaluate_at(coeffs_s_triple_dot, t) * dt;
       const double accel_d = evaluate_at(coeffs_d_triple_dot, t) * dt;
       total_accel += sqrt(pow(accel_s, 2) + pow(accel_d, 2));
+      t += dt;
     }
     const double accel_per_sec = total_accel / target_time;
     return logistic(accel_per_sec / EXPECTED_ACCELERATION_IN_ONE_SECOND);
@@ -277,6 +278,7 @@ class MaxAccelerationCostFn : public CostFnInterface {
       if (accel > MAX_ACCELERATION) {
         return 1.0;
       }
+      t += dt;
     }
     return 0.0; 
   }
@@ -317,6 +319,7 @@ class TotalJerkCostFn : public CostFnInterface {
       const double jerk_s = evaluate_at(coeffs_s_quad_dot, t) * dt;
       const double jerk_d = evaluate_at(coeffs_d_quad_dot, t) * dt;
       total_jerk += sqrt(pow(jerk_s, 2) + pow(jerk_d, 2));
+      t += dt;
     }
     const double jerk_per_sec = total_jerk / target_time;
     return logistic(jerk_per_sec / EXPECTED_JERK_IN_ONE_SECOND);
@@ -360,6 +363,7 @@ class MaxJerkCostFn : public CostFnInterface {
       if (jerk > MAX_JERK) {
         return 1.0;
       }
+      t += dt;
     }
     return 0.0; 
   }
@@ -397,8 +401,8 @@ class CollisionCostFn : public CostFnInterface {
                           CarAtTime(s, speed, sensor_fusion_t), d) < 0.0) {
           return 1.0;
         }
-        t += RESOLUTION;
-        sensor_fusion_t += RESOLUTION;
+        t += dt;
+        sensor_fusion_t += dt;
       }
     }
     return 0.0;
@@ -438,8 +442,8 @@ class GiveSpaceCostFn : public CostFnInterface {
         if (gap_size < nearest) {
           nearest = gap_size;
         }
-        t += RESOLUTION;
-        sensor_fusion_t += RESOLUTION;
+        t += dt;
+        sensor_fusion_t += dt;
       }
     }
     return logistic((2 * GetCarDiagonal()) / nearest);

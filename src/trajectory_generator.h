@@ -26,28 +26,28 @@ class TrajectoryGenerator {
         maps_dy_(maps_dy) {
     // Create cost functions and tunable weights.
     cost_fn_weights_.emplace(
-        "time_diff", make_pair(new TimeDiffCostFn(), 0.0));
+        "time_diff", make_pair(new TimeDiffCostFn(), 5.0));
     cost_fn_weights_.emplace(
-        "s_diff", make_pair(new SDiffCostFn(), 0.0));
+        "s_diff", make_pair(new SDiffCostFn(), 15.0));
     cost_fn_weights_.emplace(
-        "d_diff", make_pair(new DDiffCostFn(), 3.0));
+        "d_diff", make_pair(new DDiffCostFn(), 1.0));
     cost_fn_weights_.emplace(
         "off_roading",
-        make_pair(new SplitLaningCostFn(maps_x_, maps_y_, maps_s_), 1.0));
+        make_pair(new SplitLaningCostFn(maps_x_, maps_y_, maps_s_), 1000.0));
     cost_fn_weights_.emplace(
-        "speed_limit", make_pair(new SpeedLimitCostFn(), 5.0));
+        "speed_limit", make_pair(new SpeedLimitCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "faster_better", make_pair(new FasterBetterCostFn(), 0.7));
+        "faster_better", make_pair(new FasterBetterCostFn(), 0.0));
     cost_fn_weights_.emplace(
-        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 2.0));
+        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 50.0));
     cost_fn_weights_.emplace(
-        "max_acceleration", make_pair(new MaxAccelerationCostFn(), 7.0));
+        "max_acceleration", make_pair(new MaxAccelerationCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "total_jerk", make_pair(new TotalJerkCostFn(), 1.0));
+        "total_jerk", make_pair(new TotalJerkCostFn(), 5.0));
     cost_fn_weights_.emplace(
-        "max_jerk", make_pair(new MaxJerkCostFn(), 3.0));
+        "max_jerk", make_pair(new MaxJerkCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "collision", make_pair(new CollisionCostFn(), 10.0));
+        "collision", make_pair(new CollisionCostFn(), 1000.0));
     cost_fn_weights_.emplace(
         "give_space", make_pair(new GiveSpaceCostFn(), 0.5));
   }
@@ -72,12 +72,14 @@ class TrajectoryGenerator {
   void GenerateTrajectory(const vector<vector<double>>& sensor_fusion,
                           int previous_path_timesteps,
                           vector<double> *next_x_vals,
-                          vector<double> *next_y_vals, double init_d, double init_yaw, 
-                          double car_x, double car_y, double car_s,
-                          double car_d, double car_yaw, double car_speed,
-                          int target_lane, double target_v);
+                          vector<double> *next_y_vals, double init_yaw, double car_x,
+			  double car_y, double car_s, double car_d,
+			  double car_yaw, double car_speed, int target_lane,
+			  double target_v);
 
  private:
+  vector<double> past_steerings_;
+  
   // Generates target states approximately time_horizon seconds in the future.
   //
   // candidates: To be populated with candidate target states. Each target
@@ -140,8 +142,7 @@ class TrajectoryGenerator {
                             const vector<double>& traj_d_coeffs,
                             double elapsed_t, double car_x, double car_y,
                             double car_s, double car_d, double car_yaw,
-                            vector<double> *traj_x, vector<double> *traj_y,
-			    double init_d, double init_yaw);
+                            vector<double> *traj_x, vector<double> *traj_y);
 
   // Returns the Frenet d coordinate of the given lane.
   double GetCenterOfLane(int lane) {
@@ -161,8 +162,7 @@ class TrajectoryGenerator {
 void TrajectoryGenerator::GenerateTrajectory(
     const vector<vector<double>>& sensor_fusion,
     int previous_path_timesteps,
-    vector<double> *next_x_vals, vector<double> *next_y_vals,
-    double init_d, double init_yaw, 
+    vector<double> *next_x_vals, vector<double> *next_y_vals, double init_yaw,
     double car_x, double car_y, double car_s, double car_d, double car_yaw,
     double car_speed, int target_lane, double target_v) {
   // Don't compute too much future path.
@@ -182,15 +182,40 @@ void TrajectoryGenerator::GenerateTrajectory(
   start_d.push_back(0.0);
 
   // Move forward as far as possible in the alotted time.
-  const double time_horizon = TIMESTEP * NUM_POINTS_IN_PATH;
-  double target_speed;
-  if (target_v < car_speed) {
-    target_speed = max(target_v, 0.0);
-  } else {
-    target_speed = min(mph2mps(SPEED_LIMIT), target_v);
+  const double time_horizon = TIMESTEP *
+    (NUM_POINTS_IN_PATH - previous_path_timesteps);
+  double steering = car_yaw - init_yaw;
+  while (steering > pi() / 2) {
+    steering -= pi();
   }
+  while (steering < -pi() / 2) {
+    steering += pi();
+  }
+  // TODO(adelinew): Add constant.
+  if (past_steerings_.size() > 6) {
+    past_steerings_.erase(past_steerings_.begin());
+  }
+  past_steerings_.push_back(steering);
+  
+  // Modify target speed by the steering angle.
+  double total_steering = 0.0;
+  for (double s : past_steerings_) {
+    total_steering += s;
+  }
+
+  double correction = abs(total_steering) * STEERING_SPEED_SCALE;
+  double target_speed = target_v;
+  if (target_v - car_speed > 0.0) {
+    target_speed = min(target_v - correction * 0.1,
+		       mph2mps(SPEED_LIMIT) - correction);
+    cout << "apply correction: " << correction << endl;
+  }
+  cout << "accel: " << target_speed - car_speed << endl;
+  cout << "target: " << target_speed << endl;
+  cout << "car_speed: " << car_speed << endl;
+
   const double avg_accel = (target_speed - car_speed) / time_horizon;
-  const double max_forward_s = car_speed * time_horizon;
+  const double max_forward_s = (target_speed + car_speed) / 2.0 * time_horizon;
                                + 0.5 * avg_accel * pow(time_horizon, 2);
   const double target_s = car_s + max_forward_s;
   // Aim for the center of the target lane.
@@ -231,7 +256,7 @@ void TrajectoryGenerator::GenerateTrajectory(
   // TODO(adelinew): Update docstring & function params. (best_x, best_y)
   DiscretizeTrajectory(cand_trajs_s[best], cand_trajs_d[best],
                        actual_times[best], car_x, car_y, car_s, car_d, car_yaw,
-                       next_x_vals, next_y_vals, init_d, init_yaw);
+                       next_x_vals, next_y_vals);
 }
 
 void TrajectoryGenerator::GenerateCandidateTargets(
@@ -251,7 +276,15 @@ void TrajectoryGenerator::GenerateCandidateTargets(
   while (t <= time_horizon + TIMESTEP_RANGE_TO_GEN_TARGETS * TIMESTEP) {
     for (int i = 0; i < NUM_TARGETS; ++i) {
       vector<double> cand;
-      cand.push_back(target_s + dist_s(gen));
+      // Include adjustment for more/less time to travel.
+      // Also, never go backward.
+      if (car_speed < 5.0) {
+        cand.push_back(
+            max(target_s + 2.0,
+                target_s + dist_s(gen))); //- car_speed * (time_horizon - t)));
+      } else {
+	cand.push_back(target_s + dist_s(gen)); //- car_speed * (time_horizon - t));
+      }
       cand.push_back(target_speed + dist_s_dot(gen));
       // Although the car may accelerate, at the end of the trajectory, it
       // should be traveling at constant speed.
@@ -332,17 +365,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
     const vector<double>& traj_s_coeffs,
     const vector<double>& traj_d_coeffs,
     double elapsed_t, double car_x, double car_y, double car_s, double car_d,
-    double car_yaw, vector<double> *next_x_vals, vector<double> *next_y_vals,
-    double init_d, double init_yaw) {
-  //  for (int i = 0; i < traj_s_coeffs.size(); ++i) {
-  //    cout << traj_s_coeffs[i] << ",";
-  //  }
-  //  cout << " [s]" << endl;
-  //  for (int i = 0; i < traj_d_coeffs.size(); ++i) {
-  //    cout << traj_d_coeffs[i] << ",";
-  //  }
-  //  cout << " [d]" << endl;
-
+    double car_yaw, vector<double> *next_x_vals, vector<double> *next_y_vals) {
   int prev_wp = -1;
   // Advance to the next waypoint.
   while (car_s > maps_s_[prev_wp + 1] && (prev_wp < (int)(maps_s_.size() - 1) )) {
@@ -352,6 +375,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   const int wp3 = (prev_wp + 2) % maps_s_.size();
   const int wp4 = (prev_wp + 3) % maps_s_.size();
   const int prev_prev_wp = (prev_wp + 179) % maps_s_.size();
+  const int prev3_wp = (prev_wp + 178) % maps_s_.size();
 
   // Transform to vehicle coordinates.
   const double perp_yaw = car_yaw - (pi() / 2);
@@ -378,6 +402,9 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   }
   car_proj_prev << car_proj_x_prev - car_proj_x, car_proj_y_prev - car_proj_y;
 
+  VectorXd prev3_wp_shifted(2);
+  prev3_wp_shifted << maps_x_[prev3_wp] - car_proj_x,
+                      maps_y_[prev3_wp] - car_proj_y;
   VectorXd prev_prev_wp_shifted(2);
   prev_prev_wp_shifted << maps_x_[prev_prev_wp] - car_proj_x,
                           maps_y_[prev_prev_wp] - car_proj_y;
@@ -388,21 +415,22 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   VectorXd wp3_shifted(2);
   wp3_shifted << maps_x_[wp3] - car_proj_x, maps_y_[wp3] - car_proj_y;
   VectorXd wp4_shifted(2);
-  wp3_shifted << maps_x_[wp4] - car_proj_x, maps_y_[wp4] - car_proj_y;
+  wp4_shifted << maps_x_[wp4] - car_proj_x, maps_y_[wp4] - car_proj_y;
 
   VectorXd car_proj_prev_veh;
   if (next_x_vals->size() > 1) {
     car_proj_prev_veh = to_vehicle * car_proj_prev;
   }
+  const VectorXd prev3_wp_veh = to_vehicle * prev3_wp_shifted;
   const VectorXd prev_prev_wp_veh = to_vehicle * prev_prev_wp_shifted;
   const VectorXd prev_wp_veh = to_vehicle * prev_wp_shifted;
   const VectorXd wp2_veh = to_vehicle * wp2_shifted;
   const VectorXd wp3_veh = to_vehicle * wp3_shifted;
   const VectorXd wp4_veh = to_vehicle * wp4_shifted;
-  cout << maps_x_[prev_wp] << ", " << maps_x_[wp2] << endl;
 
   // Fit a spline.
   vector<double> pts_x;
+  pts_x.push_back(prev3_wp_veh[0]);
   pts_x.push_back(prev_prev_wp_veh[0]);
   if (next_x_vals->size() > 1 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
     pts_x.push_back(car_proj_prev_veh[0]);
@@ -411,7 +439,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
     pts_x.push_back(prev_wp_veh[0]);
     pts_x.push_back(car_proj_prev_veh[0]);
   } else {
-    pts_x.push_back(prev_wp_veh[0]);
+  pts_x.push_back(prev_wp_veh[0]);
   }
   bool add_zero = 0.0 > pts_x.back();
   if (add_zero) {
@@ -419,9 +447,10 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   }
   pts_x.push_back(wp2_veh[0]);
   pts_x.push_back(wp3_veh[0]);
-  //pts_x.push_back(wp4_veh[0]);
+  pts_x.push_back(wp4_veh[0]);
 
   vector<double> pts_y;
+  pts_y.push_back(prev3_wp_veh[1]);
   pts_y.push_back(prev_prev_wp_veh[1]);
   if (next_x_vals->size() > 1 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
     pts_y.push_back(car_proj_prev_veh[1]);
@@ -430,14 +459,14 @@ void TrajectoryGenerator::DiscretizeTrajectory(
     pts_y.push_back(prev_wp_veh[1]);
     pts_y.push_back(car_proj_prev_veh[1]);
   } else {
-    pts_y.push_back(prev_wp_veh[1]);
+  pts_y.push_back(prev_wp_veh[1]);
   }
   if (add_zero) {
     pts_y.push_back(0.0);
   }
   pts_y.push_back(wp2_veh[1]);
   pts_y.push_back(wp3_veh[1]);
-  //pts_y.push_back(wp4_veh[1]);
+  pts_y.push_back(wp4_veh[1]);
 
   tk::spline spline;
   spline.set_points(pts_x, pts_y);
