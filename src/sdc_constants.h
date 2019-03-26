@@ -9,26 +9,26 @@ const double CAR_WIDTH = 3.0;  // meters
 
 // Trajectory generation constants.
 // Lengths of trajectories to send to the simulation.
-const int NUM_POINTS_IN_PATH = 110;
+const int NUM_POINTS_IN_PATH = 120;
 // Only when the number of points in the previous path falls below this
 // number, compute the next trajectory.
-const int PATH_RECALCULATION_SIZE = 30;
+const int PATH_RECALCULATION_SIZE = 40;
 // The maximum speed increase allowed in a trajectory.
 const double SPEED_INCREMENT_PER_PATH = 1.5;  // m/s
 // Scaling factor to apply to maximum car speed around curves.
 const double STEERING_SPEED_SCALE = 4.0;
 // Standard deviations of s, d, and t for candidate target generation.
-const double SIGMA_S = 1.0;
-const double SIGMA_S_DOT = 0.5;
-const double SIGMA_S_DOUBLE_DOT = 0.5;
+const double SIGMA_S = 0.5;
+const double SIGMA_S_DOT = 0.2;
+const double SIGMA_S_DOUBLE_DOT = 0.2;
 const double SIGMA_D = 0.15;
 const double SIGMA_D_DOT = 0.1;
 const double SIGMA_D_DOUBLE_DOT = 0.1;
 // Generate candidate targets this many timesteps before the target time to
 // this many timesteps after the target time.
-const int TIMESTEP_RANGE_TO_GEN_TARGETS = 3;
+const int TIMESTEP_RANGE_TO_GEN_TARGETS = 0;
 // At each timestep, generate this many candidate targets.
-const int NUM_TARGETS = 150;
+const int NUM_TARGETS = 250;
 
 // Cost function constants.
 // Number of points to use when evaluating trajectories.

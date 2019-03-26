@@ -225,12 +225,13 @@ vector<double> PlanBehavior(double curr_s, double car_s, double car_d, double ca
 
     // Can't change lanes, so slow down.
     // Note: We compute the speed to match using the car's current s!
-    const vector<double> last_ahead = LastCarAheadInLane(
-        curr_s, sensor_fusion, previous_path_timesteps, GetLane(car_d));
-    const int sf_index = (int) last_ahead[0];
-    const double vx = sensor_fusion[sf_index][3];
-    const double vy = sensor_fusion[sf_index][4];
-    const double speed = sqrt(pow(vx, 2) + pow(vy, 2));
+    // TODO(adelinew): Delete t his?
+    /* const vector<double> last_ahead = LastCarAheadInLane( */
+    /*     curr_s, sensor_fusion, previous_path_timesteps, GetLane(car_d)); */
+    /* const int sf_index = (int) last_ahead[0]; */
+    /* const double vx = sensor_fusion[sf_index][3]; */
+    /* const double vy = sensor_fusion[sf_index][4]; */
+    /* const double speed = sqrt(pow(vx, 2) + pow(vy, 2)); */
     // Slow down.
     cout << "no, so slow down" << endl;
     return {(double) GetLane(car_d), car_speed - SPEED_INCREMENT_PER_PATH};

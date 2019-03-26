@@ -205,8 +205,8 @@ void TrajectoryGenerator::GenerateTrajectory(
 
   double correction = abs(total_steering) * STEERING_SPEED_SCALE;
   double target_speed = target_v;
-  if (target_v - car_speed > 0.0) {
-    target_speed = min(target_v - correction * 0.1,
+  if (car_speed > mph2mps(30.0)) {
+    target_speed = min(target_v - correction * 0.13,
 		       mph2mps(SPEED_LIMIT) - correction);
     cout << "apply correction: " << correction << endl;
   }
