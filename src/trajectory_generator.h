@@ -26,9 +26,9 @@ class TrajectoryGenerator {
         maps_dy_(maps_dy) {
     // Create cost functions and tunable weights.
     cost_fn_weights_.emplace(
-        "time_diff", make_pair(new TimeDiffCostFn(), 5.0));
+        "time_diff", make_pair(new TimeDiffCostFn(), 1.0));
     cost_fn_weights_.emplace(
-        "s_diff", make_pair(new SDiffCostFn(), 15.0));
+        "s_diff", make_pair(new SDiffCostFn(), 1.0));
     cost_fn_weights_.emplace(
         "d_diff", make_pair(new DDiffCostFn(), 1.0));
     cost_fn_weights_.emplace(
@@ -37,19 +37,19 @@ class TrajectoryGenerator {
     cost_fn_weights_.emplace(
         "speed_limit", make_pair(new SpeedLimitCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "faster_better", make_pair(new FasterBetterCostFn(), 0.0));
+        "faster_better", make_pair(new FasterBetterCostFn(), 100.0));
     cost_fn_weights_.emplace(
-        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 50.0));
+        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 10.0));
     cost_fn_weights_.emplace(
         "max_acceleration", make_pair(new MaxAccelerationCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "total_jerk", make_pair(new TotalJerkCostFn(), 5.0));
+        "total_jerk", make_pair(new TotalJerkCostFn(), 10.0));
     cost_fn_weights_.emplace(
         "max_jerk", make_pair(new MaxJerkCostFn(), 1000.0));
     cost_fn_weights_.emplace(
         "collision", make_pair(new CollisionCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "give_space", make_pair(new GiveSpaceCostFn(), 0.5));
+        "give_space", make_pair(new GiveSpaceCostFn(), 1.0));
   }
 
   ~TrajectoryGenerator() {
@@ -192,7 +192,7 @@ void TrajectoryGenerator::GenerateTrajectory(
     steering += pi();
   }
   // TODO(adelinew): Add constant.
-  if (past_steerings_.size() > 6) {
+  if (past_steerings_.size() > 5) {
     past_steerings_.erase(past_steerings_.begin());
   }
   past_steerings_.push_back(steering);
@@ -206,18 +206,15 @@ void TrajectoryGenerator::GenerateTrajectory(
   double correction = abs(total_steering) * STEERING_SPEED_SCALE;
   double target_speed = target_v;
   if (car_speed > mph2mps(30.0)) {
-    target_speed = min(target_v - correction * 0.13,
-		       mph2mps(SPEED_LIMIT) - correction);
+    target_speed = min(target_v - correction,
+		       mph2mps(SPEED_LIMIT));
     cout << "apply correction: " << correction << endl;
   }
-  cout << "accel: " << target_speed - car_speed << endl;
-  cout << "target: " << target_speed << endl;
-  cout << "car_speed: " << car_speed << endl;
-
   const double avg_accel = (target_speed - car_speed) / time_horizon;
-  const double max_forward_s = (target_speed + car_speed) / 2.0 * time_horizon;
+  const double max_forward_s = car_speed * time_horizon
                                + 0.5 * avg_accel * pow(time_horizon, 2);
   const double target_s = car_s + max_forward_s;
+
   // Aim for the center of the target lane.
   const double target_d = GetCenterOfLane(target_lane);
 
@@ -249,11 +246,12 @@ void TrajectoryGenerator::GenerateTrajectory(
   }
 
   // Select best trajectory and convert it into x, y point path.
-  int best = BestTrajectory(
-      cand_trajs_s, cand_trajs_d, actual_times, sensor_fusion,
-      previous_path_timesteps, time_horizon, target_s, target_d,
-      target_speed, 0.0);
+  /* int best = BestTrajectory( */
+  /*     cand_trajs_s, cand_trajs_d, actual_times, sensor_fusion, */
+  /*     previous_path_timesteps, time_horizon, target_s, target_d, */
+  /*     target_speed, 0.0); */
   // TODO(adelinew): Update docstring & function params. (best_x, best_y)
+  int best = 0;
   DiscretizeTrajectory(cand_trajs_s[best], cand_trajs_d[best],
                        actual_times[best], car_x, car_y, car_s, car_d, car_yaw,
                        next_x_vals, next_y_vals);
@@ -272,19 +270,14 @@ void TrajectoryGenerator::GenerateCandidateTargets(
   normal_distribution<double> dist_d_dot(0, SIGMA_D_DOT);
   normal_distribution<double> dist_d_double_dot(0, SIGMA_D_DOUBLE_DOT);
 
+  // Add the "correct" targets.
+  candidates->push_back({target_s, target_speed, 0.0, target_d, 0.0, 0.0, time_horizon});
+  
   double t = time_horizon - TIMESTEP_RANGE_TO_GEN_TARGETS * TIMESTEP;
   while (t <= time_horizon + TIMESTEP_RANGE_TO_GEN_TARGETS * TIMESTEP) {
     for (int i = 0; i < NUM_TARGETS; ++i) {
       vector<double> cand;
-      // Include adjustment for more/less time to travel.
-      // Also, never go backward.
-      if (car_speed < 5.0) {
-        cand.push_back(
-            max(target_s + 2.0,
-                target_s + dist_s(gen))); //- car_speed * (time_horizon - t)));
-      } else {
-	cand.push_back(target_s + dist_s(gen)); //- car_speed * (time_horizon - t));
-      }
+      cand.push_back(target_s + dist_s(gen));
       cand.push_back(target_speed + dist_s_dot(gen));
       // Although the car may accelerate, at the end of the trajectory, it
       // should be traveling at constant speed.
@@ -381,6 +374,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   const double perp_yaw = car_yaw - (pi() / 2);
   const double car_proj_x = car_x - car_d * cos(perp_yaw);
   const double car_proj_y = car_y - car_d * sin(perp_yaw);
+
   double rot;
   if (next_x_vals->size() > 1) {
     rot = atan2(car_y - (*next_y_vals)[next_x_vals->size() - 2],
@@ -389,6 +383,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
     rot = atan2(maps_y_[wp2] - maps_y_[prev_wp],
 			   maps_x_[wp2] - maps_x_[prev_wp]);
   }
+  
   MatrixXd to_vehicle(2, 2);
   to_vehicle << cos(rot), sin(rot),
                 -sin(rot), cos(rot);
@@ -396,11 +391,27 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   VectorXd car_proj_prev(2);
   double car_proj_x_prev;
   double car_proj_y_prev;
-  if (next_x_vals->size() > 1) {
+
+  VectorXd car_proj_prev2(2);
+  double car_proj_x_prev2;
+  double car_proj_y_prev2;
+
+  VectorXd car_proj_prev3(2);
+  double car_proj_x_prev3;
+  double car_proj_y_prev3;
+  if (next_x_vals->size() > 10) {
     car_proj_x_prev = (*next_x_vals)[next_x_vals->size() - 2] - car_d * cos(perp_yaw);
     car_proj_y_prev = (*next_y_vals)[next_y_vals->size() - 2] - car_d * sin(perp_yaw);
+
+    car_proj_x_prev2 = (*next_x_vals)[next_x_vals->size() - 3] - car_d * cos(perp_yaw);
+    car_proj_y_prev2 = (*next_y_vals)[next_y_vals->size() - 3] - car_d * sin(perp_yaw);
+
+    car_proj_x_prev3 = (*next_x_vals)[next_x_vals->size() - 4] - car_d * cos(perp_yaw);
+    car_proj_y_prev3 = (*next_y_vals)[next_y_vals->size() - 4] - car_d * sin(perp_yaw);
   }
   car_proj_prev << car_proj_x_prev - car_proj_x, car_proj_y_prev - car_proj_y;
+  car_proj_prev2 << car_proj_x_prev2 - car_proj_x, car_proj_y_prev2 - car_proj_y;
+  car_proj_prev3 << car_proj_x_prev3 - car_proj_x, car_proj_y_prev3 - car_proj_y;
 
   VectorXd prev3_wp_shifted(2);
   prev3_wp_shifted << maps_x_[prev3_wp] - car_proj_x,
@@ -418,8 +429,12 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   wp4_shifted << maps_x_[wp4] - car_proj_x, maps_y_[wp4] - car_proj_y;
 
   VectorXd car_proj_prev_veh;
-  if (next_x_vals->size() > 1) {
+  VectorXd car_proj_prev_veh2;
+  VectorXd car_proj_prev_veh3;
+  if (next_x_vals->size() > 10) {
     car_proj_prev_veh = to_vehicle * car_proj_prev;
+    car_proj_prev_veh2 = to_vehicle * car_proj_prev2;
+    car_proj_prev_veh3 = to_vehicle * car_proj_prev3;
   }
   const VectorXd prev3_wp_veh = to_vehicle * prev3_wp_shifted;
   const VectorXd prev_prev_wp_veh = to_vehicle * prev_prev_wp_shifted;
@@ -432,39 +447,47 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   vector<double> pts_x;
   pts_x.push_back(prev3_wp_veh[0]);
   pts_x.push_back(prev_prev_wp_veh[0]);
-  if (next_x_vals->size() > 1 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
+  if (next_x_vals->size() > 0 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
+    pts_x.push_back(car_proj_prev_veh3[0]);
+    pts_x.push_back(car_proj_prev_veh2[0]);
     pts_x.push_back(car_proj_prev_veh[0]);
-    pts_x.push_back(prev_wp_veh[0]);
-  } else if (next_x_vals->size() > 1) {
-    pts_x.push_back(prev_wp_veh[0]);
+    //pts_x.push_back(prev_wp_veh[0]);
+  } else if (next_x_vals->size() > 0) {
+    //pts_x.push_back(prev_wp_veh[0]);
+     pts_x.push_back(car_proj_prev_veh3[0]);
+    pts_x.push_back(car_proj_prev_veh2[0]);
     pts_x.push_back(car_proj_prev_veh[0]);
   } else {
-  pts_x.push_back(prev_wp_veh[0]);
+    pts_x.push_back(prev_wp_veh[0]);
   }
-  bool add_zero = 0.0 > pts_x.back();
-  if (add_zero) {
-    pts_x.push_back(0.0);
-  }
-  pts_x.push_back(wp2_veh[0]);
+  /* bool add_zero = 0.0 > pts_x.back(); */
+  /* if (add_zero) { */
+  /*   pts_x.push_back(0.0); */
+  /* } */
+  //pts_x.push_back(wp2_veh[0]);
   pts_x.push_back(wp3_veh[0]);
   pts_x.push_back(wp4_veh[0]);
 
   vector<double> pts_y;
   pts_y.push_back(prev3_wp_veh[1]);
   pts_y.push_back(prev_prev_wp_veh[1]);
-  if (next_x_vals->size() > 1 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
+  if (next_x_vals->size() > 0 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
+    pts_y.push_back(car_proj_prev_veh3[1]);
+    pts_y.push_back(car_proj_prev_veh2[1]);
     pts_y.push_back(car_proj_prev_veh[1]);
-    pts_y.push_back(prev_wp_veh[1]);
-  } else if (next_x_vals->size() > 1) {
-    pts_y.push_back(prev_wp_veh[1]);
+    //pts_y.push_back(prev_wp_veh[0]);
+  } else if (next_x_vals->size() > 0) {
+    //pts_y.push_back(prev_wp_veh[0]);
+    pts_y.push_back(car_proj_prev_veh3[1]);
+    pts_y.push_back(car_proj_prev_veh2[1]);
     pts_y.push_back(car_proj_prev_veh[1]);
   } else {
-  pts_y.push_back(prev_wp_veh[1]);
+    pts_y.push_back(prev_wp_veh[1]);
   }
-  if (add_zero) {
-    pts_y.push_back(0.0);
-  }
-  pts_y.push_back(wp2_veh[1]);
+  /* if (add_zero) { */
+  /*   pts_y.push_back(0.0); */
+  /* } */
+  //pts_y.push_back(wp2_veh[1]);
   pts_y.push_back(wp3_veh[1]);
   pts_y.push_back(wp4_veh[1]);
 
