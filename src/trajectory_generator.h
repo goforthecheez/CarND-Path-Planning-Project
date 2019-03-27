@@ -37,13 +37,13 @@ class TrajectoryGenerator {
     cost_fn_weights_.emplace(
         "speed_limit", make_pair(new SpeedLimitCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "faster_better", make_pair(new FasterBetterCostFn(), 100.0));
+        "faster_better", make_pair(new FasterBetterCostFn(), 25.0));
     cost_fn_weights_.emplace(
-        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 10.0));
+        "total_acceleration", make_pair(new TotalAccelerationCostFn(), 50.0));
     cost_fn_weights_.emplace(
         "max_acceleration", make_pair(new MaxAccelerationCostFn(), 1000.0));
     cost_fn_weights_.emplace(
-        "total_jerk", make_pair(new TotalJerkCostFn(), 10.0));
+        "total_jerk", make_pair(new TotalJerkCostFn(), 50.0));
     cost_fn_weights_.emplace(
         "max_jerk", make_pair(new MaxJerkCostFn(), 1000.0));
     cost_fn_weights_.emplace(
