@@ -229,24 +229,29 @@ vector<double> PlanBehavior(double curr_s, double car_s, double car_d, double ca
                             const vector<vector<double>>& sensor_fusion,
                             int previous_path_timesteps) {
   // Provided the car is moving fast enough, always try to be in the fast lane.
-  if (car_speed > mph2mps(POSTED_SPEED_LIMIT * 0.75)) {
+  if ((car_speed > mph2mps(POSTED_SPEED_LIMIT * 0.75)
+       && GetLane(car_d) == 1) ||
+      (car_speed > mph2mps(POSTED_SPEED_LIMIT * 0.5) && GetLane(car_d) == 2)) {
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneLeft(car_d))) {
-      return {(double) OneLaneLeft(car_d), car_speed};
+      // Include small correction factor to reduce tangential acceleration.
+      return {(double) OneLaneLeft(car_d), car_speed - mph2mps(2.0)};
     }
   }
 
   if (ShouldTryToChangeLanes(car_s, car_d, car_speed, sensor_fusion,
                              previous_path_timesteps)) {
     // Try a left lane change.
+    // Include small correction to reduce tangential acceleration.
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneLeft(car_d))) {
-      return {(double) OneLaneLeft(car_d), car_speed};
+      return {(double) OneLaneLeft(car_d), car_speed - mph2mps(2.0)};
     }
     // Try a right lane change.
+    // Include small correction to reduce tangential acceleration.
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneRight(car_d))) {
-      return {(double) OneLaneRight(car_d), car_speed};
+      return {(double) OneLaneRight(car_d), car_speed - mph2mps(2.0)};
     }
 
     // Can't change lanes, so slow down.
@@ -256,8 +261,12 @@ vector<double> PlanBehavior(double curr_s, double car_s, double car_d, double ca
   // Nothing directly ahead; try to speed up.
   if (OkayToSpeedUp(car_s, car_d, car_speed, sensor_fusion,
                     previous_path_timesteps)) {
+    // HACK: Due to greater warp in the Frenet-to-Cartesian conversion in the
+    // right lanes, use a slower speed limit and smaller speed increment.
+    double actual_speed_limit = mph2mps(SPEED_LIMIT) - 1.0 * GetLane(car_d);
     return {(double) GetLane(car_d),
-            min(mph2mps(SPEED_LIMIT), car_speed + SPEED_INCREMENT_PER_PATH)};
+            min(actual_speed_limit,
+		car_speed + SPEED_INCREMENT_PER_PATH - 0.5 * GetLane(car_d))};
   }
 
   // The default driving behavior is to maintain speed.
