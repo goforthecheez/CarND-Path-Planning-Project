@@ -1,12 +1,15 @@
 // Behavior planner.
 //
 // This is a very simple behavior planner.
+// First of all, the car always tries to change into the leftmost lane.
 // If the SDC is getting close to the car in front of it, then:
 //   (1) first see it is possible to change one lane to the left
 //       (a faster lane),
 //   (2) if not, see if it is possible to change one lane to the right
 //       (a slower lane),
-//   (3) otherwise, keep this lane.
+//   (3) otherwise, keep its lane but slow down.
+// If the car is not blocked in front, then it will try to speed up.
+// If none of the above are possible, the car will maintain its speed.
 
 #include <vector>
 
@@ -43,8 +46,12 @@ bool LocIsOnRoad(double d) {
 }
 
 // Returns the index in sensor_fusion of the rearmost car ahead of the SDC
-// in the given lane and the size of the gap with the SDC (at the start of the
-// next trajectory).
+// in the given lane and the size of the s-coordinate gap with the SDC.
+//
+// car_s: current Frenet s-coordinate of SDC.
+// sensor_fusion: data on nearby cars.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
+// lane: the lane to inspect.
 vector<double> LastCarAheadInLane(
     double car_s, const vector<vector<double>>& sensor_fusion,
     int previous_path_timesteps, int lane) {
@@ -77,8 +84,12 @@ vector<double> LastCarAheadInLane(
 }
 
 // Returns the index in sensor_fusion of the first car behind the SDC in the
-// given lane and the size of the gap with the SDC (at the start of the next
-// trajectory).
+// given lane and the size of the gap with the SDC.
+//
+// car_s: current Frenet s-coordinate of SDC.
+// sensor_fusion: data on nearby cars.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
+// lane: the lane to inspect.
 vector<double> FirstCarBehindInLane(
     double car_s, const vector<vector<double>>& sensor_fusion,
     int previous_path_timesteps, int lane) {
@@ -110,6 +121,14 @@ vector<double> FirstCarBehindInLane(
   return {(double) sf_index, closest_gap};
 }
 
+// Determines whether it is safe for the SDC to speed up.
+// It is safe for the SDC to speed up if the closest car ahead of it in its
+// lane is more than MIN_BUFFER_SPEED_UP ahead of it, or there are no cars ahead.
+//
+// car_{s, d}: current position of SDC in Frenet coordinates.
+// car_speed: current speed of SDC.
+// sensor_fusion: data on nearby cars.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
 bool OkayToSpeedUp(
     double car_s, double car_d, double car_speed,
     const vector<vector<double>>& sensor_fusion, int previous_path_timesteps) {
@@ -129,7 +148,13 @@ bool OkayToSpeedUp(
 
 // The SDC should try to change lanes if it is either blocked in front or not
 // traveling at the speed limit.
-// Assumes all movement is at constant speed.
+//
+// NOTE: Assumes all cars, including the SDC, move at constant speed.
+//
+// car_{s, d}: current position of SDC in Frenet coordinates.
+// car_speed: current speed of SDC.
+// sensor_fusion: data on nearby cars.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
 bool ShouldTryToChangeLanes(
     double car_s, double car_d, double car_speed,
     const vector<vector<double>>& sensor_fusion, int previous_path_timesteps) {
@@ -159,7 +184,14 @@ bool ShouldTryToChangeLanes(
 }
 
 // Determines whether a lane change would result in collision.
-// Assumes all movement is at constant speed.
+//
+// NOTE: Assumes all cars, including the SDC, move at constant speed.
+//
+// car_{s, d}: current position of SDC in Frenet coordinates.
+// car_speed: current speed of SDC.
+// sensor_fusion: data on nearby cars.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
+// lane: the target lane of the lane change.
 bool LaneChangeIsSafe(double car_s, double car_d, double car_speed,
                       const vector<vector<double>>& sensor_fusion,
                       int previous_path_timesteps, int lane) {
@@ -192,57 +224,42 @@ bool LaneChangeIsSafe(double car_s, double car_d, double car_speed,
 // car_{s, d}: current position of SDC in Frenet coordinates.
 // car_speed: current speed of SDC.
 // sensor_fusion: data on nearby cars.
-// previous_path_timesteps: indicates how much delay to apply to sensor fusion
-//     data.
+// previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
 vector<double> PlanBehavior(double curr_s, double car_s, double car_d, double car_speed,
                             const vector<vector<double>>& sensor_fusion,
                             int previous_path_timesteps) {
-  // Always try to be in the fast lane.
-  if ((car_speed > mph2mps(50.0 * 0.75) && GetLane(car_d) == 1) ||
-      (car_speed > mph2mps(50.0 * 0.5) && GetLane(car_d) == 2)){
+  // Provided the car is moving fast enough, always try to be in the fast lane.
+  if (car_speed > mph2mps(POSTED_SPEED_LIMIT * 0.75)) {
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneLeft(car_d))) {
-      cout << "<<<<<OK" << endl;
       return {(double) OneLaneLeft(car_d), car_speed};
-    } 
+    }
   }
 
   if (ShouldTryToChangeLanes(car_s, car_d, car_speed, sensor_fusion,
                              previous_path_timesteps)) {
-    cout << "change lanes? ";
     // Try a left lane change.
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneLeft(car_d))) {
-      cout << "<<<<<" << endl;
       return {(double) OneLaneLeft(car_d), car_speed};
     }
     // Try a right lane change.
     if (LaneChangeIsSafe(car_s, car_d, car_speed, sensor_fusion,
                          previous_path_timesteps, OneLaneRight(car_d))) {
-      cout << ">>>>>" << endl;
       return {(double) OneLaneRight(car_d), car_speed};
     }
 
     // Can't change lanes, so slow down.
-    // Note: We compute the speed to match using the car's current s!
-    // TODO(adelinew): Delete t his?
-    /* const vector<double> last_ahead = LastCarAheadInLane( */
-    /*     curr_s, sensor_fusion, previous_path_timesteps, GetLane(car_d)); */
-    /* const int sf_index = (int) last_ahead[0]; */
-    /* const double vx = sensor_fusion[sf_index][3]; */
-    /* const double vy = sensor_fusion[sf_index][4]; */
-    /* const double speed = sqrt(pow(vx, 2) + pow(vy, 2)); */
-    // Slow down.
-    cout << "no, so slow down" << endl;
     return {(double) GetLane(car_d), car_speed - SPEED_INCREMENT_PER_PATH};
   }
-  
+
   // Nothing directly ahead; try to speed up.
   if (OkayToSpeedUp(car_s, car_d, car_speed, sensor_fusion,
-		    previous_path_timesteps)) {
+                    previous_path_timesteps)) {
     return {(double) GetLane(car_d),
             min(mph2mps(SPEED_LIMIT), car_speed + SPEED_INCREMENT_PER_PATH)};
   }
+
   // The default driving behavior is to maintain speed.
   return {(double) GetLane(car_d), car_speed};
 }

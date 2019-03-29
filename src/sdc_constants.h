@@ -1,6 +1,7 @@
 const double TIMESTEP = 0.02;  // seconds
 
 // Road-related constants.
+const double POSTED_SPEED_LIMIT = 50.0;  // mph
 const double SPEED_LIMIT = 45.0;  // mph
 const int NUM_LANES = 3;
 const int LANE_WIDTH = 4;  // meters
