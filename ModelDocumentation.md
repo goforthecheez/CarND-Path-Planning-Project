@@ -39,7 +39,7 @@ And now onto code! The main function is GenerateTrajectory in trajectory_generat
 3.  Next the target state is handed off to GenerateCandidateTargets, which produces other potential target state by adding noise to the given ones.
 4.  The start state and all of the candidate target states will have s- and d-coordinate quintic jerk-minimizing polynomials fit to them. (lines 238-253) The coefficients of the polynomials and valid time horizon are saved (lines 255-257).
 5.  Next BestTrajectory evaluates all the polynomials and times and selects the "best" one according to a set of cost functions (defined in cost_fns.h) and weights that are configured when the TrajectoryGenerator is constructed (line 73 of main.cpp). Weights can be found in lines 28-52 of trajectory_generator.h.
-6.  Finally, DiscretizeTrajectory first fits a spline (lines 374-498), then iterates through the valid time of the best trajectory's jerk-minimizing polynomials, performing a conversion back to global Cartesian coordinates, incorporating the spline and jerk-minimizing polynomials. (lines 504-527).
+6.  Finally, DiscretizeTrajectory first fits a spline (lines 374-498), then iterates through the valid time of the best trajectory's jerk-minimizing polynomials, performing a conversion back to global Cartesian coordinates, incorporating the spline and jerk-minimizing polynomials. (lines 504-527). The math for this mostly came from the project walkthrough video.
 
 ## Other Files
 
