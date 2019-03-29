@@ -30,9 +30,6 @@ double evaluate_at(const vector<double>& coeffs, double eval_at) {
     sum += coeff * power;
     power *= eval_at;
   }
-  if (eval_at == 0.0) {
-    cout << "IT IS: " << sum;
-  }
   return sum;
 }
 
@@ -107,6 +104,7 @@ vector<double> GetFrenet(double x, double y, double theta,
   // Compute the normal vector n components between waypoints.
   const double n_x = maps_x[next_wp] - maps_x[prev_wp];
   const double n_y = maps_y[next_wp] - maps_y[prev_wp];
+
   // Compute the Cartesian coordinate x components between waypoints.
   const double x_x = x - maps_x[prev_wp];
   const double x_y = y - maps_y[prev_wp];
@@ -182,7 +180,7 @@ double GetCarDiagonal() {
 
 // Returns the distance of the gap between the SDC and another car, with
 // positions given in Frenet coordinates. If the cars are in collision,
-// return -1.0.
+// returns -1.0.
 double DistanceToCar(double car_s, double car_d, double other_s,
                      double other_d) {
   // Locally, Frenet coordinates approximate Cartesian coordinates.

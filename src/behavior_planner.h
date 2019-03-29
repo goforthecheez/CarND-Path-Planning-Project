@@ -225,7 +225,8 @@ bool LaneChangeIsSafe(double car_s, double car_d, double car_speed,
 // car_speed: current speed of SDC.
 // sensor_fusion: data on nearby cars.
 // previous_path_timesteps: indicates how much delay to apply to sensor fusion data.
-vector<double> PlanBehavior(double curr_s, double car_s, double car_d, double car_speed,
+vector<double> PlanBehavior(double curr_s, double car_s, double car_d,
+			    double car_speed,
                             const vector<vector<double>>& sensor_fusion,
                             int previous_path_timesteps) {
   // Provided the car is moving fast enough, always try to be in the fast lane.

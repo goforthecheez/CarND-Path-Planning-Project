@@ -72,14 +72,12 @@ class TrajectoryGenerator {
   void GenerateTrajectory(const vector<vector<double>>& sensor_fusion,
                           int previous_path_timesteps,
                           vector<double> *next_x_vals,
-                          vector<double> *next_y_vals, double init_yaw, double car_x,
-			  double car_y, double car_s, double car_d,
-			  double car_yaw, double car_speed, int target_lane,
-			  double target_v);
+                          vector<double> *next_y_vals, double init_yaw,
+                          double car_x, double car_y, double car_s,
+                          double car_d, double car_yaw, double car_speed,
+                          int target_lane, double target_v);
 
  private:
-  vector<double> past_steerings_;
-  
   // Generates target states approximately time_horizon seconds in the future.
   //
   // candidates: To be populated with candidate target states. Each target
@@ -109,6 +107,13 @@ class TrajectoryGenerator {
   // Returns index of best trajectory from a set of candidate trajectories,
   // sensor fusion data of nearby cars, and the requested execution time,
   // position, and speed.
+  //
+  // cand_trajs_{s, d}: Frenet coordinates of the candidate trajectories.
+  // actual_times: actual times to complete each candidate trajectory.
+  // sensor_fusion: data on nearby cars.
+  // previous_path_timesteps: timesteps remaining in the previous path.
+  // target_time: the target time to the complete the trajectory.
+  // target_{s, s_dot, d, d_dot}: the target Frenet coordinate values.
   int BestTrajectory(const vector<vector<double>>& cand_trajs_s,
                      const vector<vector<double>>& cand_trajs_d,
                      const vector<double>& actual_times,
@@ -120,6 +125,14 @@ class TrajectoryGenerator {
   // Computes weighted sum of all the cost functions for a single trajectory
   // from sensor fusion data of nearby cars and the requested execution time,
   // position, and speed.
+  //
+  // traj_s_coeffs: length 6 vector of coefficients of s polynomial.
+  // traj_d_coeffs: length 6 vector of coefficients of d polynomial.
+  // actual_time: actual time to complete the trajectory.
+  // sensor_fusion: data on nearby cars.
+  // previous_path_timesteps: timesteps remaining in the previous path.
+  // target_time: the target time to the complete the trajectory.
+  // target_{s, s_dot, d, d_dot}: the target Frenet coordinate values.
   double ComputeTotalCost(const vector<double>& traj_s_coeffs,
                           const vector<double>& traj_d_coeffs,
                           double actual_time,
@@ -135,7 +148,7 @@ class TrajectoryGenerator {
   // traj_d_coeffs: length 6 vector of coefficients of d polynomial.
   // elapsed_t: discretized trajectory to be generated from 0 to this time.
   // car_{x, y}: car's current position in Cartesian coordinates.
-  // car_{x, d}: car's current position in Frenet coordinates.
+  // car_{s, d}: car's current position in Frenet coordinates.
   // car_yaw: car's curent heading.
   // traj_{x, y}: discretized trajectory in Cartesian coordinates.
   void DiscretizeTrajectory(const vector<double>& traj_s_coeffs,
@@ -157,11 +170,12 @@ class TrajectoryGenerator {
   const vector<double>& maps_dy_;
   // Map from cost function name to cost functions and weights.
   unordered_map<string, pair<CostFnInterface *, float>> cost_fn_weights_;
+  // History of steering angles.
+  vector<double> past_steerings_;
 };
 
 void TrajectoryGenerator::GenerateTrajectory(
-    const vector<vector<double>>& sensor_fusion,
-    int previous_path_timesteps,
+    const vector<vector<double>>& sensor_fusion, int previous_path_timesteps,
     vector<double> *next_x_vals, vector<double> *next_y_vals, double init_yaw,
     double car_x, double car_y, double car_s, double car_d, double car_yaw,
     double car_speed, int target_lane, double target_v) {
@@ -181,9 +195,6 @@ void TrajectoryGenerator::GenerateTrajectory(
   start_d.push_back(0.0);
   start_d.push_back(0.0);
 
-  // Move forward as far as possible in the alotted time.
-  const double time_horizon = TIMESTEP *
-    (NUM_POINTS_IN_PATH - previous_path_timesteps);
   double steering = car_yaw - init_yaw;
   while (steering > pi() / 2) {
     steering -= pi();
@@ -191,27 +202,29 @@ void TrajectoryGenerator::GenerateTrajectory(
   while (steering < -pi() / 2) {
     steering += pi();
   }
-  // TODO(adelinew): Add constant.
-  if (past_steerings_.size() > 5) {
+  if (past_steerings_.size() > STEERING_HISTORY_LENGTH) {
     past_steerings_.erase(past_steerings_.begin());
   }
   past_steerings_.push_back(steering);
   
-  // Modify target speed by the steering angle.
+  // Modify target speed given the steering angle in the recent past.
+  // I.e., go slower around curves above a certain speed.
   double total_steering = 0.0;
   for (double s : past_steerings_) {
     total_steering += s;
   }
-
   double correction = abs(total_steering) * STEERING_SPEED_SCALE;
   double target_speed = target_v;
-  if (car_speed > mph2mps(30.0)) {
+  if (car_speed > mph2mps(THRESHOLD_SPEED_FOR_STEERING_CORRECTION)) {
     target_speed = target_v - correction;
-    cout << "apply correction: " << correction << endl;
   }
+
+  // Move forward as far as possible in the alotted time.
+  const double time_horizon = TIMESTEP *
+    (NUM_POINTS_IN_PATH - previous_path_timesteps);
   const double avg_accel = (target_speed - car_speed) / time_horizon;
-  const double max_forward_s = car_speed * time_horizon
-                               + 0.5 * avg_accel * pow(time_horizon, 2);
+  const double max_forward_s = car_speed * time_horizon +
+      0.5 * avg_accel * pow(time_horizon, 2);
   const double target_s = car_s + max_forward_s;
 
   // Aim for the center of the target lane.
@@ -245,12 +258,10 @@ void TrajectoryGenerator::GenerateTrajectory(
   }
 
   // Select best trajectory and convert it into x, y point path.
-  /* int best = BestTrajectory( */
-  /*     cand_trajs_s, cand_trajs_d, actual_times, sensor_fusion, */
-  /*     previous_path_timesteps, time_horizon, target_s, target_d, */
-  /*     target_speed, 0.0); */
-  // TODO(adelinew): Update docstring & function params. (best_x, best_y)
-  int best = 0;
+  int best = BestTrajectory(
+      cand_trajs_s, cand_trajs_d, actual_times, sensor_fusion,
+      previous_path_timesteps, time_horizon, target_s, target_d,
+      target_speed, 0.0);
   DiscretizeTrajectory(cand_trajs_s[best], cand_trajs_d[best],
                        actual_times[best], car_x, car_y, car_s, car_d, car_yaw,
                        next_x_vals, next_y_vals);
@@ -270,8 +281,10 @@ void TrajectoryGenerator::GenerateCandidateTargets(
   normal_distribution<double> dist_d_double_dot(0, SIGMA_D_DOUBLE_DOT);
 
   // Add the "correct" targets.
-  candidates->push_back({target_s, target_speed, 0.0, target_d, 0.0, 0.0, time_horizon});
-  
+  candidates->push_back({target_s, target_speed, 0.0, target_d, 0.0, 0.0,
+                         time_horizon});
+
+  // Add other candidates.
   double t = time_horizon - TIMESTEP_RANGE_TO_GEN_TARGETS * TIMESTEP;
   while (t <= time_horizon + TIMESTEP_RANGE_TO_GEN_TARGETS * TIMESTEP) {
     for (int i = 0; i < NUM_TARGETS; ++i) {
@@ -347,20 +360,21 @@ double TrajectoryGenerator::ComputeTotalCost(
     CostFnInterface *cost_fn = it.second.first;
     const float weight = it.second.second;
     total_cost += weight * cost_fn->ComputeCost(
-        traj_d_coeffs, traj_s_coeffs, actual_time, sensor_fusion, previous_path_timesteps,
-        target_time, target_s, target_d, target_s_dot, target_d_dot);
+        traj_d_coeffs, traj_s_coeffs, actual_time, sensor_fusion,
+	previous_path_timesteps, target_time, target_s, target_d, target_s_dot,
+        target_d_dot);
   }
   return total_cost;
 }
 
 void TrajectoryGenerator::DiscretizeTrajectory(
-    const vector<double>& traj_s_coeffs,
-    const vector<double>& traj_d_coeffs,
+    const vector<double>& traj_s_coeffs, const vector<double>& traj_d_coeffs,
     double elapsed_t, double car_x, double car_y, double car_s, double car_d,
     double car_yaw, vector<double> *next_x_vals, vector<double> *next_y_vals) {
   int prev_wp = -1;
   // Advance to the next waypoint.
-  while (car_s > maps_s_[prev_wp + 1] && (prev_wp < (int)(maps_s_.size() - 1) )) {
+  while (car_s > maps_s_[prev_wp + 1] &&
+         (prev_wp < (int)(maps_s_.size() - 1) )) {
     ++prev_wp;
   }
   const int wp2 = (prev_wp + 1) % maps_s_.size();
@@ -380,37 +394,47 @@ void TrajectoryGenerator::DiscretizeTrajectory(
                 car_x - (*next_x_vals)[next_x_vals->size() - 2]);
   } else {
     rot = atan2(maps_y_[wp2] - maps_y_[prev_wp],
-			   maps_x_[wp2] - maps_x_[prev_wp]);
+                maps_x_[wp2] - maps_x_[prev_wp]);
   }
   
   MatrixXd to_vehicle(2, 2);
   to_vehicle << cos(rot), sin(rot),
                 -sin(rot), cos(rot);
 
-  VectorXd car_proj_prev(2);
   double car_proj_x_prev;
   double car_proj_y_prev;
 
-  VectorXd car_proj_prev2(2);
   double car_proj_x_prev2;
   double car_proj_y_prev2;
 
-  VectorXd car_proj_prev3(2);
   double car_proj_x_prev3;
   double car_proj_y_prev3;
-  if (next_x_vals->size() > 10) {
-    car_proj_x_prev = (*next_x_vals)[next_x_vals->size() - 2] - car_d * cos(perp_yaw);
-    car_proj_y_prev = (*next_y_vals)[next_y_vals->size() - 2] - car_d * sin(perp_yaw);
+  if (next_x_vals->size() > 3) {
+    car_proj_x_prev = (*next_x_vals)[next_x_vals->size() - 2] -
+        car_d * cos(perp_yaw);
+    car_proj_y_prev = (*next_y_vals)[next_y_vals->size() - 2] -
+        car_d * sin(perp_yaw);
 
-    car_proj_x_prev2 = (*next_x_vals)[next_x_vals->size() - 3] - car_d * cos(perp_yaw);
-    car_proj_y_prev2 = (*next_y_vals)[next_y_vals->size() - 3] - car_d * sin(perp_yaw);
+    car_proj_x_prev2 = (*next_x_vals)[next_x_vals->size() - 3] -
+        car_d * cos(perp_yaw);
+    car_proj_y_prev2 = (*next_y_vals)[next_y_vals->size() - 3] -
+        car_d * sin(perp_yaw);
 
-    car_proj_x_prev3 = (*next_x_vals)[next_x_vals->size() - 4] - car_d * cos(perp_yaw);
-    car_proj_y_prev3 = (*next_y_vals)[next_y_vals->size() - 4] - car_d * sin(perp_yaw);
+    car_proj_x_prev3 = (*next_x_vals)[next_x_vals->size() - 4] -
+        car_d * cos(perp_yaw);
+    car_proj_y_prev3 = (*next_y_vals)[next_y_vals->size() - 4] -
+        car_d * sin(perp_yaw);
   }
-  car_proj_prev << car_proj_x_prev - car_proj_x, car_proj_y_prev - car_proj_y;
-  car_proj_prev2 << car_proj_x_prev2 - car_proj_x, car_proj_y_prev2 - car_proj_y;
-  car_proj_prev3 << car_proj_x_prev3 - car_proj_x, car_proj_y_prev3 - car_proj_y;
+
+  VectorXd car_proj_prev(2);
+  VectorXd car_proj_prev2(2);
+  VectorXd car_proj_prev3(2);
+  car_proj_prev << car_proj_x_prev - car_proj_x,
+                   car_proj_y_prev - car_proj_y;
+  car_proj_prev2 << car_proj_x_prev2 - car_proj_x,
+                    car_proj_y_prev2 - car_proj_y;
+  car_proj_prev3 << car_proj_x_prev3 - car_proj_x,
+                    car_proj_y_prev3 - car_proj_y;
 
   VectorXd prev3_wp_shifted(2);
   prev3_wp_shifted << maps_x_[prev3_wp] - car_proj_x,
@@ -419,7 +443,8 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   prev_prev_wp_shifted << maps_x_[prev_prev_wp] - car_proj_x,
                           maps_y_[prev_prev_wp] - car_proj_y;
   VectorXd prev_wp_shifted(2);
-  prev_wp_shifted << maps_x_[prev_wp] - car_proj_x, maps_y_[prev_wp] - car_proj_y;
+  prev_wp_shifted << maps_x_[prev_wp] - car_proj_x,
+                     maps_y_[prev_wp] - car_proj_y;
   VectorXd wp2_shifted(2);
   wp2_shifted << maps_x_[wp2] - car_proj_x, maps_y_[wp2] - car_proj_y;
   VectorXd wp3_shifted(2);
@@ -430,7 +455,7 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   VectorXd car_proj_prev_veh;
   VectorXd car_proj_prev_veh2;
   VectorXd car_proj_prev_veh3;
-  if (next_x_vals->size() > 10) {
+  if (next_x_vals->size() > 3) {
     car_proj_prev_veh = to_vehicle * car_proj_prev;
     car_proj_prev_veh2 = to_vehicle * car_proj_prev2;
     car_proj_prev_veh3 = to_vehicle * car_proj_prev3;
@@ -446,47 +471,26 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   vector<double> pts_x;
   pts_x.push_back(prev3_wp_veh[0]);
   pts_x.push_back(prev_prev_wp_veh[0]);
-  if (next_x_vals->size() > 0 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
+  if (next_x_vals->size() > 0) {
     pts_x.push_back(car_proj_prev_veh3[0]);
-    pts_x.push_back(car_proj_prev_veh2[0]);
-    pts_x.push_back(car_proj_prev_veh[0]);
-    //pts_x.push_back(prev_wp_veh[0]);
-  } else if (next_x_vals->size() > 0) {
-    //pts_x.push_back(prev_wp_veh[0]);
-     pts_x.push_back(car_proj_prev_veh3[0]);
     pts_x.push_back(car_proj_prev_veh2[0]);
     pts_x.push_back(car_proj_prev_veh[0]);
   } else {
     pts_x.push_back(prev_wp_veh[0]);
   }
-  /* bool add_zero = 0.0 > pts_x.back(); */
-  /* if (add_zero) { */
-  /*   pts_x.push_back(0.0); */
-  /* } */
-  //pts_x.push_back(wp2_veh[0]);
   pts_x.push_back(wp3_veh[0]);
   pts_x.push_back(wp4_veh[0]);
 
   vector<double> pts_y;
   pts_y.push_back(prev3_wp_veh[1]);
   pts_y.push_back(prev_prev_wp_veh[1]);
-  if (next_x_vals->size() > 0 && car_proj_prev_veh[0] < prev_wp_veh[0]) {
-    pts_y.push_back(car_proj_prev_veh3[1]);
-    pts_y.push_back(car_proj_prev_veh2[1]);
-    pts_y.push_back(car_proj_prev_veh[1]);
-    //pts_y.push_back(prev_wp_veh[0]);
-  } else if (next_x_vals->size() > 0) {
-    //pts_y.push_back(prev_wp_veh[0]);
+  if (next_x_vals->size() > 0) {
     pts_y.push_back(car_proj_prev_veh3[1]);
     pts_y.push_back(car_proj_prev_veh2[1]);
     pts_y.push_back(car_proj_prev_veh[1]);
   } else {
     pts_y.push_back(prev_wp_veh[1]);
   }
-  /* if (add_zero) { */
-  /*   pts_y.push_back(0.0); */
-  /* } */
-  //pts_y.push_back(wp2_veh[1]);
   pts_y.push_back(wp3_veh[1]);
   pts_y.push_back(wp4_veh[1]);
 
@@ -497,12 +501,11 @@ void TrajectoryGenerator::DiscretizeTrajectory(
   to_global << cos(rot), -sin(rot),
                sin(rot), cos(rot);
 
+  // Transform back to global coordinates.
   double prev_x_proj = 0.0;
   double prev_y_proj = 0.0;
   double t = TIMESTEP;
   while (t < elapsed_t) {
-    //cout << evaluate_at(traj_s_coeffs, t) << " [t = " << t << ", s]" << endl;
-    //cout << evaluate_at(traj_d_coeffs, t) << " [t = " << t << ", d]" << endl;
     const double s = evaluate_at(traj_s_coeffs, t);
     // Approximate car movement along x as being in a straight line.
     const double x_proj = s - car_s;
@@ -515,13 +518,9 @@ void TrajectoryGenerator::DiscretizeTrajectory(
     VectorXd xy(2);
     xy << x_proj + d * cos(perp_heading), y_proj + d * sin(perp_heading);
 
-    // Transform back to global coordinates.
     const VectorXd global_xy = to_global * xy;
-
     next_x_vals->push_back(global_xy[0] + car_proj_x);
-    //cout << "x: " << x << endl;
     next_y_vals->push_back(global_xy[1] + car_proj_y);
-    //cout << "y: " << y << endl;
 
     t += TIMESTEP;
     prev_x_proj = x_proj;

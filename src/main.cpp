@@ -115,11 +115,10 @@ int main() {
 
           json msgJson;
 
+          // Define a path made up of (x,y) points that the car will visit
+          // sequentially every .02 seconds.
           vector<double> next_x_vals;
           vector<double> next_y_vals;
-
-          // TODO: define a path made up of (x,y) points that the car will
-          // visit sequentially every .02 seconds.
 
           // Copy over unused previous path points.
           const int num_points_to_keep = previous_path_x.size();
@@ -162,10 +161,10 @@ int main() {
           // Determine what maneuver to execute (i.e. which lane to aim for).
           const vector<double> plan = PlanBehavior(
               car_s, curr_s, curr_d, curr_v, sensor_fusion, num_points_to_keep);
-          const int target_lane = (int) plan[0];
-          const double target_speed = plan[1];
 
           // Generate a smooth trajectory for the target lane.
+          const int target_lane = (int) plan[0];
+          const double target_speed = plan[1];
           tg.GenerateTrajectory(
               sensor_fusion, num_points_to_keep, &next_x_vals, &next_y_vals,
               deg2rad(car_yaw), curr_x, curr_y, curr_s, curr_d, curr_theta,

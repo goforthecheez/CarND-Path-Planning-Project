@@ -109,7 +109,7 @@ class DDiffCostFn : public CostFnInterface {
 class SplitLaningCostFn : public CostFnInterface {
  public:
   SplitLaningCostFn(const vector<double>& maps_x, const vector<double>& maps_y,
-                   const vector<double>& maps_s)
+                    const vector<double>& maps_s)
       : maps_x_(maps_x), maps_y_(maps_y), maps_s_(maps_s) {}
   ~SplitLaningCostFn() override {}
 
