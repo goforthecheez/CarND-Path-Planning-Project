@@ -1,6 +1,6 @@
 # Path Planner Model Documentation
 
-For easier reading, feel free to open this file in a Markup reader.
+For easier reading, feel free to open this file in a Markdown reader.
 
 ## Overview
 
